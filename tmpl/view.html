@@ -1,0 +1,21 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>{{.Title}}</title>
+    <meta name="description" content="View page for {{.Title}}">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body>
+    <div class="mx-2">
+        <h1 class="text-3xl fint-bold">{{.Title}}</h1>
+        <p>[<a class="text-blue-600 visited:text-purple-600" href="/edit/{{.Title}}">edit</a>]</p>
+        <div class="border-2">{{printf "%s" .Body}}</div>
+
+    </div>
+
+</body>
+
+
+</html>
