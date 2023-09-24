@@ -1,0 +1,18 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Htmx Go experiment</title>
+    <meta name="description" content="View page for {{.Title}}">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+
+<body>
+    <button class="border-2" hx-get="/clicked" hx-swap="outerHTML">
+        Click Me
+    </button>
+</body>
+
+
+</html>

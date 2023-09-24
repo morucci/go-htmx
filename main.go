@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+
+	"github.com/gorilla/securecookie"
 )
 
 type Page struct {
@@ -14,8 +16,48 @@ type Page struct {
 	Body  []byte
 }
 
-var templates = template.Must(template.ParseFiles("tmpl/edit.html", "tmpl/view.html"))
+var templates = template.Must(template.ParseFiles(
+	"tmpl/htmx-index.html", "tmpl/edit.html", "tmpl/view.html"))
 var validPath = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
+
+// Hash keys should be at least 32 bytes long
+var hashKey = []byte("very-secret")
+
+// Block keys should be 16 bytes (AES-128) or 32 bytes (AES-256) long.
+// Shorter keys may weaken the encryption used.
+var blockKey []byte = nil
+
+var s = securecookie.New(hashKey, blockKey)
+
+func SetCookie(w http.ResponseWriter, r *http.Request) {
+	println("Here set cookie")
+	value := map[string]string{
+		"foo": "bar",
+	}
+	if encoded, err := s.Encode("cookie-name", value); err == nil {
+		cookie := http.Cookie{
+			Name:     "cookie-name",
+			Value:    encoded,
+			Path:     "",
+			Secure:   true,
+			HttpOnly: true,
+			MaxAge:   3600,
+			SameSite: http.SameSiteLaxMode,
+		}
+		fmt.Println(cookie)
+		http.SetCookie(w, &cookie)
+	}
+}
+
+func ReadCookie(w http.ResponseWriter, r *http.Request) {
+	println("Here read cookie")
+	if cookie, err := r.Cookie("cookie-name"); err == nil {
+		value := make(map[string]string)
+		if err = s.Decode("cookie-name", cookie.Value, &value); err == nil {
+			fmt.Printf("The value of foo is %q\n", value["foo"])
+		}
+	}
+}
 
 func (p *Page) save() error {
 	filename := "data/" + p.Title + ".txt"
@@ -82,11 +124,27 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.Handl
 	}
 }
 
+func indexHTMXHandler(w http.ResponseWriter, r *http.Request) {
+	ReadCookie(w, r)
+	SetCookie(w, r)
+	err := templates.ExecuteTemplate(w, "htmx-index.html", nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func clickedHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "<div>Clicked</div>")
+	println("Clicked")
+}
+
 func main() {
-	fmt.Println("Hello, world")
+	fmt.Println("Hello, World")
 	http.HandleFunc("/view/", makeHandler(viewHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
 	http.HandleFunc("/save/", makeHandler(saveHandler))
 	http.HandleFunc("/", indexHandler)
+	http.HandleFunc("/htmx", indexHTMXHandler)
+	http.HandleFunc("/clicked", clickedHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
