@@ -8,6 +8,8 @@ import (
 	"os"
 	"regexp"
 
+	"github.com/morucci/go-htmx/sessions"
+
 	"github.com/gorilla/securecookie"
 )
 
@@ -140,6 +142,23 @@ func clickedHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	fmt.Println("Hello, World")
+	userSession := sessions.UserSession{
+		Id: "123",
+	}
+	localSessionStore := sessions.LocalSessionStore{
+		Path: "data/sessions/",
+	}
+
+	err := localSessionStore.Save(userSession)
+	if err != nil {
+		fmt.Println("Unable to write session", err)
+	}
+	userSession2, err := localSessionStore.Load(userSession.Id)
+	if err != nil {
+		fmt.Println("Unable to read session", err)
+	} else {
+		fmt.Println("UserSession ID", (*userSession2).Id)
+	}
 	http.HandleFunc("/view/", makeHandler(viewHandler))
 	http.HandleFunc("/edit/", makeHandler(editHandler))
 	http.HandleFunc("/save/", makeHandler(saveHandler))
