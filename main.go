@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 
+	"github.com/google/uuid"
 	"github.com/morucci/go-htmx/sessions"
 
 	"github.com/gorilla/securecookie"
@@ -31,34 +32,44 @@ var blockKey []byte = nil
 
 var s = securecookie.New(hashKey, blockKey)
 
-func SetCookie(w http.ResponseWriter, r *http.Request) {
-	println("Here set cookie")
-	value := map[string]string{
-		"foo": "bar",
+const cookieName = "go-htmx-playground"
+
+func SetCookie(w http.ResponseWriter, r *http.Request, previousUUID *string) {
+	var sessionUUID string
+	if previousUUID != nil {
+		sessionUUID = *previousUUID
+	} else {
+		sessionUUID = uuid.NewString()
+		println("No previous cookie session uuid. Set new uuid", sessionUUID)
 	}
-	if encoded, err := s.Encode("cookie-name", value); err == nil {
+	value := map[string]string{
+		"uuid": sessionUUID,
+	}
+	if encoded, err := s.Encode(cookieName, value); err == nil {
 		cookie := http.Cookie{
-			Name:     "cookie-name",
+			Name:     cookieName,
 			Value:    encoded,
-			Path:     "",
+			Path:     "/",
 			Secure:   true,
 			HttpOnly: true,
 			MaxAge:   3600,
 			SameSite: http.SameSiteLaxMode,
 		}
-		fmt.Println(cookie)
 		http.SetCookie(w, &cookie)
 	}
 }
 
-func ReadCookie(w http.ResponseWriter, r *http.Request) {
-	println("Here read cookie")
-	if cookie, err := r.Cookie("cookie-name"); err == nil {
+func ReadCookie(w http.ResponseWriter, r *http.Request) (*string, error) {
+	var err error
+	if cookie, err := r.Cookie(cookieName); err == nil {
 		value := make(map[string]string)
-		if err = s.Decode("cookie-name", cookie.Value, &value); err == nil {
-			fmt.Printf("The value of foo is %q\n", value["foo"])
+		if err = s.Decode(cookieName, cookie.Value, &value); err == nil {
+			sessionUUID := value["uuid"]
+			fmt.Printf("The value of sessionUUID is %q\n", sessionUUID)
+			return &sessionUUID, nil
 		}
 	}
+	return nil, err
 }
 
 func (p *Page) save() error {
@@ -127,8 +138,8 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.Handl
 }
 
 func indexHTMXHandler(w http.ResponseWriter, r *http.Request) {
-	ReadCookie(w, r)
-	SetCookie(w, r)
+	sessionUUID, _ := ReadCookie(w, r)
+	SetCookie(w, r, sessionUUID)
 	err := templates.ExecuteTemplate(w, "htmx-index.html", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
