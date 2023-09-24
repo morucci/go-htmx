@@ -5,8 +5,11 @@ import (
 	"os"
 )
 
+type UserData = int
+
 type UserSession struct {
-	Id string
+	Id   string
+	Data UserData
 }
 
 type SessionId = string

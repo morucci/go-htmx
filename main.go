@@ -5,8 +5,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"os"
-	"regexp"
 
 	"github.com/google/uuid"
 	"github.com/morucci/go-htmx/sessions"
@@ -21,7 +19,6 @@ type Page struct {
 
 var templates = template.Must(template.ParseFiles(
 	"tmpl/htmx-index.html", "tmpl/edit.html", "tmpl/view.html"))
-var validPath = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
 
 // Hash keys should be at least 32 bytes long
 var hashKey = []byte("very-secret")
@@ -34,29 +31,23 @@ var s = securecookie.New(hashKey, blockKey)
 
 const cookieName = "go-htmx-playground"
 
-func SetCookie(w http.ResponseWriter, r *http.Request, previousUUID *string) {
-	var sessionUUID string
-	if previousUUID != nil {
-		sessionUUID = *previousUUID
-	} else {
-		sessionUUID = uuid.NewString()
-		println("No previous cookie session uuid. Set new uuid", sessionUUID)
-	}
+func SetCookie(w http.ResponseWriter, r *http.Request) string {
+	sessionUUID := uuid.NewString()
 	value := map[string]string{
 		"uuid": sessionUUID,
 	}
-	if encoded, err := s.Encode(cookieName, value); err == nil {
-		cookie := http.Cookie{
-			Name:     cookieName,
-			Value:    encoded,
-			Path:     "/",
-			Secure:   true,
-			HttpOnly: true,
-			MaxAge:   3600,
-			SameSite: http.SameSiteLaxMode,
-		}
-		http.SetCookie(w, &cookie)
+	encoded, _ := s.Encode(cookieName, value)
+	cookie := http.Cookie{
+		Name:     cookieName,
+		Value:    encoded,
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: true,
+		MaxAge:   3600,
+		SameSite: http.SameSiteLaxMode,
 	}
+	http.SetCookie(w, &cookie)
+	return sessionUUID
 }
 
 func ReadCookie(w http.ResponseWriter, r *http.Request) (*string, error) {
@@ -72,75 +63,32 @@ func ReadCookie(w http.ResponseWriter, r *http.Request) (*string, error) {
 	return nil, err
 }
 
-func (p *Page) save() error {
-	filename := "data/" + p.Title + ".txt"
-	return os.WriteFile(filename, p.Body, 0600)
+var localSessionStore = sessions.LocalSessionStore{
+	Path: "data/sessions/",
 }
 
-func loadPage(title string) (*Page, error) {
-	filename := "data/" + title + ".txt"
-	body, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	return &Page{
-		Title: title,
-		Body:  body,
-	}, nil
-}
-func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
-	err := templates.ExecuteTemplate(w, tmpl+".html", p)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-func viewHandler(w http.ResponseWriter, r *http.Request, title string) {
-	p, err := loadPage(title)
-	if err != nil {
-		http.Redirect(w, r, "/edit/"+title, http.StatusFound)
-		return
-	}
-	renderTemplate(w, "view", p)
-}
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	var sessionUUID string
+	mSessionUUID, _ := ReadCookie(w, r)
+	if mSessionUUID == nil {
+		sessionUUID = SetCookie(w, r)
+	} else {
+		sessionUUID = *mSessionUUID
 
-func editHandler(w http.ResponseWriter, r *http.Request, title string) {
-	p, err := loadPage(title)
-	if err != nil {
-		p = &Page{Title: title}
 	}
-	renderTemplate(w, "edit", p)
-}
-
-func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
-	body := r.FormValue("body")
-	p := &Page{Title: title, Body: []byte(body)}
-	err := p.save()
+	userSession, err := localSessionStore.Load(sessionUUID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/view/"+title, http.StatusFound)
-}
-
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/view/index", http.StatusFound)
-}
-
-func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		m := validPath.FindStringSubmatch(r.URL.Path)
-		if m == nil {
-			http.NotFound(w, r)
-			return
+		fmt.Println("Unable to read session data for "+sessionUUID, err)
+		userSession = &sessions.UserSession{
+			Id:   sessionUUID,
+			Data: 0,
 		}
-		fn(w, r, m[2])
+		fmt.Println("Initialized session data for " + sessionUUID)
+		localSessionStore.Save(*userSession)
+	} else {
+		fmt.Println("Found existing session data for ", (*userSession).Id)
 	}
-}
-
-func indexHTMXHandler(w http.ResponseWriter, r *http.Request) {
-	sessionUUID, _ := ReadCookie(w, r)
-	SetCookie(w, r, sessionUUID)
-	err := templates.ExecuteTemplate(w, "htmx-index.html", nil)
+	err = templates.ExecuteTemplate(w, "htmx-index.html", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -152,29 +100,7 @@ func clickedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	fmt.Println("Hello, World")
-	userSession := sessions.UserSession{
-		Id: "123",
-	}
-	localSessionStore := sessions.LocalSessionStore{
-		Path: "data/sessions/",
-	}
-
-	err := localSessionStore.Save(userSession)
-	if err != nil {
-		fmt.Println("Unable to write session", err)
-	}
-	userSession2, err := localSessionStore.Load(userSession.Id)
-	if err != nil {
-		fmt.Println("Unable to read session", err)
-	} else {
-		fmt.Println("UserSession ID", (*userSession2).Id)
-	}
-	http.HandleFunc("/view/", makeHandler(viewHandler))
-	http.HandleFunc("/edit/", makeHandler(editHandler))
-	http.HandleFunc("/save/", makeHandler(saveHandler))
-	http.HandleFunc("/", indexHandler)
-	http.HandleFunc("/htmx", indexHTMXHandler)
+	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/clicked", clickedHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
