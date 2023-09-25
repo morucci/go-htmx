@@ -63,11 +63,7 @@ func ReadCookie(w http.ResponseWriter, r *http.Request) (*string, error) {
 	return nil, err
 }
 
-var localSessionStore = sessions.LocalSessionStore{
-	Path: "data/sessions/",
-}
-
-func rootHandler(w http.ResponseWriter, r *http.Request) {
+func rootHandler(w http.ResponseWriter, r *http.Request, sessionStore sessions.LocalSessionStore) {
 	var sessionUUID string
 	mSessionUUID, _ := ReadCookie(w, r)
 	if mSessionUUID == nil {
@@ -76,7 +72,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 		sessionUUID = *mSessionUUID
 
 	}
-	userSession, err := localSessionStore.Load(sessionUUID)
+	userSession, err := sessionStore.Load(sessionUUID)
 	if err != nil {
 		fmt.Println("Unable to read session data for "+sessionUUID, err)
 		userSession = &sessions.UserSession{
@@ -84,7 +80,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 			Data: 0,
 		}
 		fmt.Println("Initialized session data for " + sessionUUID)
-		localSessionStore.Save(*userSession)
+		sessionStore.Save(*userSession)
 	} else {
 		fmt.Println("Found existing session data for ", (*userSession).Id)
 	}
@@ -100,7 +96,15 @@ func clickedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/", rootHandler)
+	var localSessionStore = sessions.LocalSessionStore{
+		Path: "data/sessions/",
+	}
+
+	rootHandlerSession := func(w http.ResponseWriter, r *http.Request) {
+		rootHandler(w, r, localSessionStore)
+	}
+
+	http.HandleFunc("/", rootHandlerSession)
 	http.HandleFunc("/clicked", clickedHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
