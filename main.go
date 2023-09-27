@@ -12,13 +12,8 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
-type Page struct {
-	Title string
-	Body  []byte
-}
-
 var templates = template.Must(template.ParseFiles(
-	"tmpl/htmx-index.html", "tmpl/edit.html", "tmpl/view.html"))
+	"tmpl/htmx-index.html"))
 
 // Hash keys should be at least 32 bytes long
 var hashKey = []byte("very-secret")
@@ -29,9 +24,7 @@ var blockKey []byte = nil
 
 var s = securecookie.New(hashKey, blockKey)
 
-const cookieName = "go-htmx-playground"
-
-func SetCookie(w http.ResponseWriter, r *http.Request) string {
+func setCookie(w http.ResponseWriter, r *http.Request, cookieName string) string {
 	sessionUUID := uuid.NewString()
 	value := map[string]string{
 		"uuid": sessionUUID,
@@ -50,61 +43,79 @@ func SetCookie(w http.ResponseWriter, r *http.Request) string {
 	return sessionUUID
 }
 
-func ReadCookie(w http.ResponseWriter, r *http.Request) (*string, error) {
-	var err error
+func readCookieSessionUUID(w http.ResponseWriter, r *http.Request, cookieName string) string {
 	if cookie, err := r.Cookie(cookieName); err == nil {
 		value := make(map[string]string)
 		if err = s.Decode(cookieName, cookie.Value, &value); err == nil {
-			sessionUUID := value["uuid"]
-			fmt.Printf("The value of sessionUUID is %q\n", sessionUUID)
-			return &sessionUUID, nil
+			return value["uuid"]
 		}
 	}
-	return nil, err
+	return ""
 }
 
-func rootHandler(w http.ResponseWriter, r *http.Request, sessionStore sessions.LocalSessionStore) {
+func (s *SessionHandler) getUserSession(w http.ResponseWriter, r *http.Request) sessions.UserSession {
+	const cookieName = "go-htmx-playground"
 	var sessionUUID string
-	mSessionUUID, _ := ReadCookie(w, r)
-	if mSessionUUID == nil {
-		sessionUUID = SetCookie(w, r)
+	mSessionUUID := readCookieSessionUUID(w, r, cookieName)
+	if mSessionUUID == "" {
+		sessionUUID = setCookie(w, r, cookieName)
 	} else {
-		sessionUUID = *mSessionUUID
-
+		sessionUUID = mSessionUUID
 	}
-	userSession, err := sessionStore.Load(sessionUUID)
+	userSession, err := s.sessionsStore.Load(sessionUUID)
 	if err != nil {
 		fmt.Println("Unable to read session data for "+sessionUUID, err)
 		userSession = &sessions.UserSession{
-			Id:   sessionUUID,
-			Data: 0,
+			Id: sessionUUID,
+			Data: sessions.UserData{
+				Counter: 0,
+			},
 		}
 		fmt.Println("Initialized session data for " + sessionUUID)
-		sessionStore.Save(*userSession)
+		s.sessionsStore.Save(*userSession)
 	} else {
 		fmt.Println("Found existing session data for ", (*userSession).Id)
 	}
-	err = templates.ExecuteTemplate(w, "htmx-index.html", nil)
+	return *userSession
+}
+
+func (s *SessionHandler) rootHandler(w http.ResponseWriter, r *http.Request) {
+	userSession := s.getUserSession(w, r)
+	err := templates.ExecuteTemplate(w, "htmx-index.html", userSession.Data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func clickedHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "<div>Clicked</div>")
-	println("Clicked")
+func (s *SessionHandler) clickedButtonHandler(w http.ResponseWriter, r *http.Request, val int) {
+	userSession := s.getUserSession(w, r)
+	userSession.Data.Counter += val
+	s.sessionsStore.Save(userSession)
+	fmt.Fprintf(w, "<div id=counter-value>%d</div>", userSession.Data.Counter)
+}
+
+func (s *SessionHandler) clickedPlusButtonHandler(w http.ResponseWriter, r *http.Request) {
+	s.clickedButtonHandler(w, r, +1)
+}
+
+func (s *SessionHandler) clickedMinusButtonHandler(w http.ResponseWriter, r *http.Request) {
+	s.clickedButtonHandler(w, r, -1)
+}
+
+type SessionHandler struct {
+	sessionsStore sessions.LocalSessionStore
 }
 
 func main() {
-	var localSessionStore = sessions.LocalSessionStore{
-		Path: "data/sessions/",
+
+	s := SessionHandler{
+		sessionsStore: sessions.LocalSessionStore{
+			Path: "data/sessions/",
+		},
 	}
 
-	rootHandlerSession := func(w http.ResponseWriter, r *http.Request) {
-		rootHandler(w, r, localSessionStore)
-	}
-
-	http.HandleFunc("/", rootHandlerSession)
-	http.HandleFunc("/clicked", clickedHandler)
+	http.HandleFunc("/", s.rootHandler)
+	http.HandleFunc("/clicked-plus", s.clickedPlusButtonHandler)
+	http.HandleFunc("/clicked-minus", s.clickedMinusButtonHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

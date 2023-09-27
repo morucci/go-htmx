@@ -3,16 +3,20 @@
 <head>
     <meta charset="utf-8">
     <title>Htmx Go experiment</title>
-    <meta name="description" content="View page for {{.Title}}">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.6"></script>
 </head>
 
 <body>
-    <button class="border-2" hx-get="/clicked" hx-swap="outerHTML">
-        Click Me
-    </button>
+    <div class="flex flex-row gap-2">
+        <button class="border-2" hx-get="/clicked-minus" hx-target="#counter-value">
+            -
+        </button>
+        <div id="counter-value">{{.Counter }}</div>
+        <button class="border-2" hx-get="/clicked-plus" hx-target="#counter-value">
+            +
+        </button>
+    </div>
 </body>
-
 
 </html>

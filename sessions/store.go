@@ -5,7 +5,9 @@ import (
 	"os"
 )
 
-type UserData = int
+type UserData struct {
+	Counter int
+}
 
 type UserSession struct {
 	Id   string
